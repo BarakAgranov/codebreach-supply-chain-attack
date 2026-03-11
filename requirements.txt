@@ -1,0 +1,10 @@
+# =============================================================================
+# Python Dependencies for "CodeBreach" Attack Scripts
+# =============================================================================
+# Install: pip install -r requirements.txt
+# Versions pinned to minimum stable as of March 2026.
+# =============================================================================
+
+boto3>=1.34.0
+rich>=13.0.0
+requests>=2.31.0

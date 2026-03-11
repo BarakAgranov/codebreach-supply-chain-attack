@@ -1,0 +1,35 @@
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# Terraform
+.terraform/
+.terraform.lock.hcl
+terraform.tfstate
+terraform.tfstate.backup
+*.tfvars
+!terraform.tfvars.example
+terraform/lambda_function.zip
+
+# Lab runtime
+logs/*.jsonl
+logs/.attack-progress.json
+reports/*.md
+
+# Temp files from attack
+/tmp/codebuild_project.json
+/tmp/lambda_response.json
+/tmp/lambda_output.json
+
+# OS
+.DS_Store
+Thumbs.db

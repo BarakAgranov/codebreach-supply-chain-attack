@@ -1,0 +1,30 @@
+# =============================================================================
+# EXAMPLE VARIABLE VALUES
+# =============================================================================
+# Copy this file to terraform.tfvars and fill in your values:
+#   cp terraform.tfvars.example terraform.tfvars
+#
+# NEVER commit terraform.tfvars to version control -- it contains secrets.
+# =============================================================================
+
+aws_region     = "us-east-1"
+project_prefix = "codebreach-lab"
+
+# Your GitHub Personal Access Token (Classic) with repo + admin:repo_hook scopes.
+# Also add delete_repo scope if you want cleanup.sh to delete the repo.
+# Generate at: https://github.com/settings/tokens
+github_token = "ghp_your_token_here"
+
+# Your GitHub username
+github_owner = "your-github-username"
+
+# The repository name (should match what you created in the setup steps)
+github_repo = "mega-sdk-js"
+
+# Your GitHub numeric user ID. Find it with:
+#   curl -s https://api.github.com/users/YOUR_USERNAME | jq '.id'
+# This goes into the webhook filter as a "trusted" maintainer ID.
+trusted_github_user_ids = ["12345678"]
+
+# Simulated npm token (leave as default or set your own fake value)
+simulated_npm_token = "npm_SimulatedToken_DO_NOT_USE_abc123def456"
