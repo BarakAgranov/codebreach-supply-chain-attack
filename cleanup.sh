@@ -4,7 +4,7 @@
 # =============================================================================
 # Removes all resources created during the attack and the lab.
 # Handles resources not managed by Terraform FIRST, then runs terraform
-# destroy, and finally cleans up local artifacts.
+# destroy, optionally deletes the GitHub repo, and cleans up local artifacts.
 #
 # IMPORTANT: No set -e. Cleanup is best-effort -- if one step fails,
 # we continue with the rest. A half-cleanup is worse than a full attempt.
@@ -30,14 +30,27 @@ echo "============================================="
 echo -e "${NC}"
 
 # =============================================================================
-# [1/5] DELETE NON-TERRAFORM RESOURCES
+# Extract GitHub credentials from terraform.tfvars (if available)
 # =============================================================================
 
-echo -e "${CYAN}[1/5] Deleting resources not managed by Terraform...${NC}"
+GH_TOKEN=""
+GH_OWNER=""
+GH_REPO=""
+
+if [ -f "${TERRAFORM_DIR}/terraform.tfvars" ]; then
+    GH_TOKEN=$(grep 'github_token' "${TERRAFORM_DIR}/terraform.tfvars" 2>/dev/null | sed 's/.*= *"//' | sed 's/".*//')
+    GH_OWNER=$(grep 'github_owner' "${TERRAFORM_DIR}/terraform.tfvars" 2>/dev/null | sed 's/.*= *"//' | sed 's/".*//')
+    GH_REPO=$(grep 'github_repo' "${TERRAFORM_DIR}/terraform.tfvars" 2>/dev/null | sed 's/.*= *"//' | sed 's/".*//')
+    GH_REPO="${GH_REPO:-mega-sdk-js}"
+fi
+
+# =============================================================================
+# [1/6] DELETE NON-TERRAFORM RESOURCES
+# =============================================================================
+
+echo -e "${CYAN}[1/6] Deleting resources not managed by Terraform...${NC}"
 
 # --- Delete CloudWatch Log Groups created by CodeBuild/Lambda ---
-# These are auto-created by AWS when builds run or Lambda executes,
-# and Terraform does not manage their lifecycle.
 for LOG_GROUP in \
     "/aws/codebuild/codebreach-lab-sdk-build" \
     "/aws/lambda/codebreach-lab-deploy-function"; do
@@ -53,20 +66,13 @@ for LOG_GROUP in \
     fi
 done
 
-# --- Delete attacker branch from GitHub (if it was pushed manually) ---
-# This only applies if the user followed the manual attack guide and
-# pushed the attacker/innocent-bugfix branch to GitHub.
-echo -e "  Checking for attacker branch on GitHub..."
-echo -e "  ${YELLOW}If you pushed a branch to GitHub, delete it manually:${NC}"
-echo -e "  ${YELLOW}  git push origin --delete attacker/innocent-bugfix${NC}"
-
 # =============================================================================
-# [2/5] TERRAFORM DESTROY
+# [2/6] TERRAFORM DESTROY
 # =============================================================================
 
 TF_DESTROY_SUCCESS=false
 
-echo -e "\n${CYAN}[2/5] Running terraform destroy...${NC}"
+echo -e "\n${CYAN}[2/6] Running terraform destroy...${NC}"
 if [ -f "${TERRAFORM_DIR}/terraform.tfstate" ]; then
     cd "${TERRAFORM_DIR}"
     if terraform destroy -auto-approve -input=false; then
@@ -83,10 +89,51 @@ else
 fi
 
 # =============================================================================
-# [3/5] CLEAN UP LOCAL ARTIFACTS
+# [3/6] DELETE GITHUB REPOSITORY
 # =============================================================================
 
-echo -e "\n${CYAN}[3/5] Cleaning up local artifacts...${NC}"
+echo -e "\n${CYAN}[3/6] GitHub cleanup...${NC}"
+
+if [ -n "${GH_TOKEN}" ] && [ -n "${GH_OWNER}" ] && [ -n "${GH_REPO}" ]; then
+    # Check if the repo exists
+    REPO_CHECK=$(curl -s -o /dev/null -w "%{http_code}" \
+        -H "Authorization: token ${GH_TOKEN}" \
+        "https://api.github.com/repos/${GH_OWNER}/${GH_REPO}" 2>/dev/null)
+
+    if [ "${REPO_CHECK}" = "200" ]; then
+        echo -e "  Found repository: ${GH_OWNER}/${GH_REPO}"
+        read -p "  Delete the GitHub repository? [y/N] " -n 1 -r
+        echo
+        if [[ $REPLY =~ ^[Yy]$ ]]; then
+            DELETE_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+                -X DELETE \
+                -H "Authorization: token ${GH_TOKEN}" \
+                "https://api.github.com/repos/${GH_OWNER}/${GH_REPO}" 2>/dev/null)
+            if [ "${DELETE_CODE}" = "204" ]; then
+                echo -e "  ${GREEN}Deleted repository: ${GH_OWNER}/${GH_REPO}${NC}"
+            else
+                echo -e "  ${YELLOW}Could not delete repository (HTTP ${DELETE_CODE}).${NC}"
+                echo -e "  ${YELLOW}  Your PAT may be missing the 'delete_repo' scope.${NC}"
+                echo -e "  ${YELLOW}  Delete manually: https://github.com/${GH_OWNER}/${GH_REPO}/settings${NC}"
+                ERRORS=$((ERRORS + 1))
+            fi
+        else
+            echo -e "  ${YELLOW}Skipped. Delete manually if no longer needed:${NC}"
+            echo -e "  ${YELLOW}  https://github.com/${GH_OWNER}/${GH_REPO}/settings${NC}"
+        fi
+    else
+        echo -e "  ${YELLOW}Repository ${GH_OWNER}/${GH_REPO} not found (already deleted or token expired)${NC}"
+    fi
+else
+    echo -e "  ${YELLOW}No GitHub credentials found in terraform.tfvars. Skipping.${NC}"
+    echo -e "  ${YELLOW}If you created a repo, delete it manually on GitHub.${NC}"
+fi
+
+# =============================================================================
+# [4/6] CLEAN UP LOCAL ARTIFACTS
+# =============================================================================
+
+echo -e "\n${CYAN}[4/6] Cleaning up local artifacts...${NC}"
 
 rm -f "${SCRIPT_DIR}/logs/.attack-progress.json" 2>/dev/null || true
 rm -rf "${TERRAFORM_DIR}/.terraform" 2>/dev/null && echo -e "  ${GREEN}Removed .terraform/${NC}" || true
@@ -95,8 +142,9 @@ rm -rf "${TERRAFORM_DIR}/.terraform" 2>/dev/null && echo -e "  ${GREEN}Removed .
 if [ "${TF_DESTROY_SUCCESS}" = true ]; then
     rm -f "${TERRAFORM_DIR}/terraform.tfstate" 2>/dev/null && echo -e "  ${GREEN}Removed terraform.tfstate${NC}" || true
     rm -f "${TERRAFORM_DIR}/terraform.tfstate.backup" 2>/dev/null && echo -e "  ${GREEN}Removed terraform.tfstate.backup${NC}" || true
+    rm -f "${TERRAFORM_DIR}/terraform.tfvars" 2>/dev/null && echo -e "  ${GREEN}Removed terraform.tfvars${NC}" || true
 else
-    echo -e "  ${YELLOW}Keeping terraform.tfstate (destroy had errors -- you may need to re-run)${NC}"
+    echo -e "  ${YELLOW}Keeping terraform.tfstate and terraform.tfvars (destroy had errors)${NC}"
 fi
 
 rm -f "${TERRAFORM_DIR}/.terraform.lock.hcl" 2>/dev/null && echo -e "  ${GREEN}Removed .terraform.lock.hcl${NC}" || true
@@ -106,10 +154,10 @@ rm -f /tmp/codebuild_project.json /tmp/lambda_response.json /tmp/lambda_output.j
 echo -e "  ${GREEN}Local artifacts cleaned${NC}"
 
 # =============================================================================
-# [4/5] CLEAN UP AWS CLI PROFILES
+# [5/6] CLEAN UP AWS CLI PROFILES
 # =============================================================================
 
-echo -e "\n${CYAN}[4/5] Cleaning up AWS CLI attacker profiles...${NC}"
+echo -e "\n${CYAN}[5/6] Cleaning up AWS CLI attacker profiles...${NC}"
 for PROFILE in attacker attacker-admin; do
     aws configure set aws_access_key_id "" --profile "${PROFILE}" 2>/dev/null || true
     aws configure set aws_secret_access_key "" --profile "${PROFILE}" 2>/dev/null || true
@@ -121,12 +169,12 @@ unset STOLEN_PAT GITHUB_TOKEN NPM_TOKEN
 unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN
 
 # =============================================================================
-# [5/5] VERIFICATION CHECKLIST
+# [6/6] VERIFICATION CHECKLIST
 # =============================================================================
 
-echo -e "\n${CYAN}[5/5] Verification checklist${NC}"
+echo -e "\n${CYAN}[6/6] Verification checklist${NC}"
 echo -e "${YELLOW}"
-echo "  Log into the AWS Console and verify:"
+echo "  Verify in the AWS Console:"
 echo ""
 echo "  [ ] CodeBuild > Projects: No codebreach-lab-* projects"
 echo "  [ ] Secrets Manager: No codebreach-lab/* secrets"
@@ -136,9 +184,11 @@ echo "  [ ] CloudTrail: No codebreach-lab-trail"
 echo "  [ ] IAM > Roles: No codebreach-lab-* roles"
 echo "  [ ] CloudWatch Logs: No /aws/codebuild/codebreach-lab-* log groups"
 echo ""
-echo "  Also verify on GitHub:"
-echo "  [ ] Delete the mega-sdk-js repository (if no longer needed)"
-echo "  [ ] Revoke the codebreach-lab PAT at https://github.com/settings/tokens"
+echo "  Verify on GitHub:"
+echo ""
+echo "  [ ] Repository deleted (or delete at Settings > Danger Zone)"
+echo "  [ ] Revoke lab PAT at: https://github.com/settings/tokens"
+echo "      (This cannot be automated -- you must do it in the browser)"
 echo -e "${NC}"
 
 if [ ${ERRORS} -gt 0 ]; then
