@@ -268,6 +268,6 @@ codebreach-supply-chain-attack/
 - [docs/concepts.md](docs/concepts.md) -- Every cloud concept explained from scratch
 - [docs/attack_narrative.md](docs/attack_narrative.md) -- The full attack story as an incident report
 - [docs/real_world_examples.md](docs/real_world_examples.md) -- 6 real breaches using similar techniques
-- [Wiz: CodeBreach](https://www.wiz.io/blog/codebreach) -- The original research this lab is based on
+- [Wiz: CodeBreach]([https://www.wiz.io/blog/codebreach](https://www.wiz.io/blog/wiz-research-codebreach-vulnerability-aws-codebuild)) -- The original research this lab is based on
 - [MITRE ATT&CK Cloud Matrix](https://attack.mitre.org/matrices/enterprise/cloud/)
 - [AWS CodeBuild Security Best Practices](https://docs.aws.amazon.com/codebuild/latest/userguide/security-best-practices.html)
